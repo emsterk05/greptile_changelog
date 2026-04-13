@@ -20,6 +20,7 @@ interface RawEntryRow {
   changelog_id: string;
   title: string;
   description: string;
+  details: string;
   position: number;
 }
 
@@ -58,6 +59,7 @@ export function initDb(cwd: string = process.cwd()): void {
       changelog_id TEXT NOT NULL REFERENCES changelogs(id),
       title TEXT NOT NULL,
       description TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
       position INTEGER NOT NULL
     );
 
@@ -73,6 +75,12 @@ export function initDb(cwd: string = process.cwd()): void {
     INSERT OR IGNORE INTO state (id, last_commit_hash, generate_count)
     VALUES (1, NULL, 0);
   `);
+
+  // Migrate: add details column if missing
+  const entryCols = db.prepare('PRAGMA table_info(entries)').all() as { name: string }[];
+  if (!entryCols.some((c) => c.name === 'details')) {
+    db.exec("ALTER TABLE entries ADD COLUMN details TEXT NOT NULL DEFAULT ''");
+  }
 
   // Migrate from old schemas that stored tags in the entries table itself
   const cols = db.prepare('PRAGMA table_info(entries)').all() as { name: string }[];
@@ -135,6 +143,7 @@ export function updateState(
 export interface ChangelogEntry {
   title: string;
   description: string;
+  details: string;
   tags: string[];
 }
 
@@ -175,7 +184,7 @@ export function insertChangelog(
     'INSERT INTO changelogs (id, date, from_commit, to_commit, created_at) VALUES (?, ?, ?, ?, ?)'
   );
   const insertEntry = db.prepare(
-    'INSERT INTO entries (id, changelog_id, title, description, position) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO entries (id, changelog_id, title, description, details, position) VALUES (?, ?, ?, ?, ?, ?)'
   );
   const insertTag = db.prepare(
     'INSERT OR IGNORE INTO entry_tags (entry_id, tag) VALUES (?, ?)'
@@ -185,8 +194,8 @@ export function insertChangelog(
     insertCl.run(id, date, fromCommit, toCommit, createdAt);
     for (let i = 0; i < entries.length; i++) {
       const entryId = uuidv4();
-      const { title, description, tags } = entries[i];
-      insertEntry.run(entryId, id, title, description, i);
+      const { title, description, details, tags } = entries[i];
+      insertEntry.run(entryId, id, title, description, details ?? '', i);
       for (const tag of tags) {
         insertTag.run(entryId, tag);
       }

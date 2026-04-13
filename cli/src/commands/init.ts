@@ -5,7 +5,7 @@ import path from 'path';
 import readline from 'readline';
 import { isGitRepo, listTrackedFiles } from '../lib/git';
 import { shouldIncludeFile, prioritizeFiles } from '../lib/files';
-import { mapFiles, reduceToContext } from '../lib/openai';
+import { mapFiles, reduceToContext, setActiveSpinner } from '../lib/openai';
 import { writeConfig, configExists, getConfigDir } from '../lib/config';
 import { initDb } from '../lib/storage';
 import { checkApiKey } from '../lib/setup';
@@ -13,6 +13,25 @@ import { checkApiKey } from '../lib/setup';
 const BATCH_SIZE = 10;
 const MAX_FILE_SIZE = 50 * 1024; // 50KB
 const MAX_FILES = 100;
+const MAX_CONCURRENT = 3;
+
+async function runWithConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < tasks.length) {
+      const idx = next++;
+      results[idx] = await tasks[idx]();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()));
+  return results;
+}
 
 export async function initCommand(): Promise<void> {
   const cwd = process.cwd();
@@ -70,34 +89,42 @@ export async function initCommand(): Promise<void> {
     batches.push(fileContents.slice(i, i + BATCH_SIZE));
   }
 
-  // Map: analyze each batch in parallel
+  // Map: analyze batches with limited concurrency to avoid rate limits
+  const indent = '  ';
   const mapSpinner = ora({
-    text: `Analyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''} in parallel`,
+    text: `${indent}Analyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''}`,
     spinner: 'dots',
+    indent: 2,
   }).start();
+  setActiveSpinner(mapSpinner);
 
   let completed = 0;
   let partialSummaries: string[];
   try {
-    partialSummaries = await Promise.all(
-      batches.map(async (batch) => {
+    partialSummaries = await runWithConcurrency(
+      batches.map((batch) => async () => {
         const result = await mapFiles(batch);
         completed++;
-        mapSpinner.text = `Analyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''} in parallel (${completed}/${batches.length})`;
+        mapSpinner.text = `${indent}Analyzing batches (${completed}/${batches.length})`;
         return result;
-      })
+      }),
+      MAX_CONCURRENT
     );
-    mapSpinner.succeed(`Analyzed ${batches.length} batch${batches.length !== 1 ? 'es' : ''}`);
+    setActiveSpinner(null);
+    mapSpinner.succeed(`${indent}Analyzed ${batches.length} batch${batches.length !== 1 ? 'es' : ''}`);
   } catch (err) {
-    mapSpinner.fail('Batch analysis failed');
+    setActiveSpinner(null);
+    mapSpinner.fail(`${indent}Batch analysis failed`);
     throw err;
   }
 
   // Reduce: synthesize into project context + tags
   const reduceSpinner = ora({
-    text: 'Building project context',
+    text: `${indent}Building project context`,
     spinner: 'dots',
+    indent: 2,
   }).start();
+  setActiveSpinner(reduceSpinner);
 
   let projectContext: string;
   let suggestedTags: string[];
@@ -105,9 +132,11 @@ export async function initCommand(): Promise<void> {
     const reduced = await reduceToContext(partialSummaries);
     projectContext = reduced.projectContext;
     suggestedTags = reduced.suggestedTags;
-    reduceSpinner.succeed('Project context built');
+    setActiveSpinner(null);
+    reduceSpinner.succeed(`${indent}Project context built`);
   } catch (err) {
-    reduceSpinner.fail('Failed to build project context');
+    setActiveSpinner(null);
+    reduceSpinner.fail(`${indent}Failed to build project context`);
     throw err;
   }
 
@@ -137,11 +166,11 @@ export async function initCommand(): Promise<void> {
     fs.writeFileSync(changelogMd, '# Changelog\n');
   }
 
-  console.log(chalk.green('\n✓ Changelog initialized!\n'));
-  console.log(chalk.dim('Tags:'));
+  console.log(chalk.green(`\n  ✓ Changelog initialized!\n`));
+  console.log(chalk.dim('  Tags:'));
   for (const tag of suggestedTags) {
-    console.log(chalk.cyan(`  + ${tag}`));
+    console.log(chalk.cyan(`    + ${tag}`));
   }
-  console.log(chalk.dim('\nEdit .changelog/config.json to customize your tags.'));
-  console.log(chalk.dim('Run `changelog generate` to create your first entry.\n'));
+  console.log(chalk.dim('\n  Edit .changelog/config.json to customize your tags.'));
+  console.log(chalk.dim('  Run `changelog generate` to create your first entry.\n'));
 }

@@ -36,6 +36,10 @@ function formatMarkdownSection(data: ChangelogData): string {
     lines.push(entry.tags.map((t) => `**${t}**`).join(' '));
     lines.push('');
     lines.push(entry.description);
+    if (entry.details) {
+      lines.push('');
+      lines.push(entry.details);
+    }
     lines.push('');
   }
   return lines.join('\n').trimEnd();

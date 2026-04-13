@@ -36,14 +36,14 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
 
   // Install website deps on first run
   if (!fs.existsSync(path.join(websiteDir, 'node_modules'))) {
-    console.log(chalk.blue('Installing website dependencies (first run only)...\n'));
+    console.log(chalk.blue('    Installing website dependencies (first run only)...\n'));
     execSync('pnpm install', { cwd: websiteDir, stdio: 'inherit' });
   }
 
   const port = options.port ?? '3000';
   const nextBin = path.join(websiteDir, 'node_modules', '.bin', 'next');
 
-  const spinner = ora({ text: 'Starting changelog website', spinner: 'dots' }).start();
+  const spinner = ora({ text: 'Starting changelog website', spinner: 'dots', indent: 4 }).start();
 
   const proc = spawn(nextBin, ['dev', '-p', port], {
     cwd: websiteDir,
@@ -65,9 +65,9 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   const onData = (data: Buffer) => {
     if (!ready && data.toString().includes('Ready')) {
       ready = true;
-      spinner.succeed('Changelog website is ready');
-      console.log(chalk.bold(`\n  http://localhost:${port}\n`));
-      console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
+      spinner.succeed('Changelog website is ready at');
+      console.log(chalk.bold(`\n        http://localhost:${port}\n`));
+      console.log(chalk.dim('    Press Ctrl+C to stop.\n'));
     }
   };
   proc.stdout?.on('data', onData);
@@ -76,7 +76,7 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   // Clean exit: forward signals to the child and wait for it to die
   const cleanup = (signal: NodeJS.Signals) => {
     if (ready) {
-      console.log(chalk.dim('\nShutting down...'));
+      console.log(chalk.dim('\n    Shutting down...'));
     }
     proc.kill(signal);
   };

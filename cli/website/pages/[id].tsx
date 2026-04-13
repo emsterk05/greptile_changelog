@@ -32,7 +32,7 @@ export default function ChangelogDetailPage({ changelog, productName }: Props) {
               href="/"
               className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
             >
-              ← Back to changelog
+              ← Back to Changelog
             </Link>
           </div>
 
@@ -57,6 +57,9 @@ export default function ChangelogDetailPage({ changelog, productName }: Props) {
                   ))}
                 </div>
                 <p className="text-gray-500 leading-relaxed">{entry.description}</p>
+                {entry.details && (
+                  <p className="text-gray-400 leading-relaxed mt-2">{entry.details}</p>
+                )}
               </div>
             ))}
           </div>

@@ -14,6 +14,7 @@ interface RawEntryRow {
   changelog_id: string;
   title: string;
   description: string;
+  details: string;
   position: number;
 }
 
@@ -113,6 +114,55 @@ export function getAllTags(): string[] {
     .all() as { tag: string }[];
   db.close();
   return rows.map((r) => r.tag);
+}
+
+export interface EntryWithChangelog extends EntryRow {
+  date: string;
+  from_commit: string;
+  to_commit: string;
+}
+
+export interface EntryDetailResult {
+  entry: EntryWithChangelog;
+  siblingEntries: EntryRow[];
+}
+
+export function getEntryById(entryId: string): EntryDetailResult | null {
+  const db = openDb();
+
+  const raw = db
+    .prepare(
+      `SELECT e.*, c.date, c.from_commit, c.to_commit
+       FROM entries e
+       JOIN changelogs c ON c.id = e.changelog_id
+       WHERE e.id = ?`
+    )
+    .get(entryId) as (RawEntryRow & { date: string; from_commit: string; to_commit: string }) | undefined;
+
+  if (!raw) {
+    db.close();
+    return null;
+  }
+
+  const [entry] = loadTagsForEntries(db, [raw]);
+
+  // Fetch sibling entries from the same changelog, rotated so the next entry after
+  // the current one comes first (e.g. viewing entry 2 of [1,2,3,4,5] → [3,4,5,1])
+  const allSiblingsRaw = db
+    .prepare('SELECT * FROM entries WHERE changelog_id = ? ORDER BY position ASC')
+    .all(raw.changelog_id) as RawEntryRow[];
+  const currentIdx = allSiblingsRaw.findIndex((e) => e.id === entryId);
+  const rotated = [
+    ...allSiblingsRaw.slice(currentIdx + 1),
+    ...allSiblingsRaw.slice(0, currentIdx),
+  ];
+  const siblingEntries = loadTagsForEntries(db, rotated);
+
+  db.close();
+  return {
+    entry: { ...entry, date: raw.date, from_commit: raw.from_commit, to_commit: raw.to_commit },
+    siblingEntries,
+  };
 }
 
 export function getProductName(): string {

@@ -4,13 +4,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { readConfig, writeConfig, configExists } from '../lib/config';
 import { initDb, readState, updateState, insertChangelog } from '../lib/storage';
 import { isGitRepo, getDiff, resolveRef, getCurrentBranch, getDefaultBranch } from '../lib/git';
-import { generateChangelog, DIFF_LIMIT } from '../lib/openai';
+import { generateChangelog, DIFF_LIMIT, setActiveSpinner } from '../lib/openai';
 import { appendToChangelogMd } from '../lib/files';
 import { checkApiKey } from '../lib/setup';
 
 interface GenerateOptions {
   from?: string;
   to?: string;
+  date?: string;
 }
 
 // Split a diff into chunks of at most maxBytes, splitting only at file boundaries.
@@ -109,7 +110,7 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
   const fromHash = resolveRef(fromRef, cwd);
   const toHash = resolveRef(toRef, cwd);
 
-  console.log(chalk.blue(`\nGenerating changelog: ${fromHash.slice(0, 7)} → ${toHash.slice(0, 7)}\n`));
+  console.log(`    Generating changelog: ${fromHash.slice(0, 7)} → ${toHash.slice(0, 7)}\n`);
 
   let diff = getDiff(fromRef, toRef, cwd);
 
@@ -124,7 +125,7 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     diff = filterDiff(diff, config.excludePatterns);
     const removed = before - diff.length;
     if (removed > 0) {
-      console.log(chalk.dim(`Excluded ${(removed / 1024).toFixed(1)}KB matching exclude patterns.\n`));
+      console.log(chalk.dim(`    Excluded ${(removed / 1024).toFixed(1)}KB matching exclude patterns.\n`));
     }
     if (!diff.trim()) {
       console.log(chalk.yellow('No changes remain after applying exclude patterns.'));
@@ -133,11 +134,13 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
   }
 
   const chunkCount = Math.ceil(diff.length / DIFF_LIMIT);
+  const indent = '    ';
   const spinnerText = chunkCount > 1
-    ? `Analyzing ${chunkCount} batches in parallel (${(diff.length / 1024).toFixed(0)}KB diff)`
-    : `Analyzing diff (${(diff.length / 1024).toFixed(1)}KB)`;
+    ? `${indent}Analyzing ${chunkCount} batches in parallel (${(diff.length / 1024).toFixed(0)}KB diff)`
+    : `${indent}Analyzing diff (${(diff.length / 1024).toFixed(1)}KB)`;
 
-  const spinner = ora({ text: spinnerText, spinner: 'dots' }).start();
+  const spinner = ora({ text: spinnerText, spinner: 'dots', indent: 4 }).start();
+  setActiveSpinner(spinner);
 
   let entries: Awaited<ReturnType<typeof generateChangelog>>['entries'];
   let newTags: string[];
@@ -158,12 +161,14 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     newTags = result.newTags;
     actualChunks = result.chunkCount;
 
+    setActiveSpinner(null);
     if (actualChunks > 1) {
-      spinner.succeed(`Analyzed ${actualChunks} batches`);
+      spinner.succeed(chalk.green(`Analyzed ${actualChunks} batches`));
     } else {
-      spinner.succeed('Analysis complete');
+      spinner.succeed(chalk.green('Analysis complete'));
     }
   } catch (err) {
+    setActiveSpinner(null);
     spinner.fail('Analysis failed');
     throw err;
   }
@@ -184,11 +189,15 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     }
     if (addedTags.length > 0) {
       writeConfig(config, cwd);
-      console.log(chalk.dim(`Added new tags to config: ${addedTags.join(', ')}\n`));
+      console.log(chalk.dim(`    Added new tags to config: ${addedTags.join(', ')}\n`));
     }
   }
 
-  const date = new Date().toISOString().split('T')[0];
+  const date = options.date ?? new Date().toISOString().split('T')[0];
+  if (options.date && !/^\d{4}-\d{2}-\d{2}$/.test(options.date)) {
+    console.error(chalk.red('Error: --date must be in YYYY-MM-DD format.'));
+    process.exit(1);
+  }
   const id = uuidv4();
 
   // Write to database
@@ -204,23 +213,39 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
   // Print summary
   const count = entries.length;
   const chunkNote = actualChunks > 1 ? ` (from ${actualChunks} diff chunks)` : '';
-  console.log(chalk.green(`✓ Generated ${count} changelog ${count === 1 ? 'entry' : 'entries'}${chunkNote}:\n`));
+  // Staggered output — lines appear one at a time
+  const lines: string[] = [];
+
+  lines.push(chalk.green(`    ✓ Generated ${count} changelog ${count === 1 ? 'entry' : 'entries'}${chunkNote}:`));
   for (const entry of entries) {
-    console.log(`  ${chalk.cyan(`[${entry.tags.join(', ')}]`)} ${chalk.bold(entry.title)}`);
+    lines.push(`      ${chalk.cyan(`[${entry.tags.join(', ')}]`)} ${chalk.gray(entry.title)}`);
   }
 
-  // Refresh suggestion
-  const diffPaths = [...diff.matchAll(/^diff --git a\/.* b\/(.+)$/gm)].map((m) => m[1]);
-  const hasNewFiles = diffPaths.some((p) => !config.scannedFiles.includes(p));
-
-  if (newCount % 5 === 0 || hasNewFiles) {
-    console.log(
-      chalk.yellow(
-        '\nTip: your codebase has grown since init. Run `changelog refresh` to update your project context.'
-      )
+  // Refresh suggestion — only every 10 generates, only if significant structural changes
+  if (newCount % 10 === 0) {
+    const diffPaths = [...diff.matchAll(/^diff --git a\/.* b\/(.+)$/gm)].map((m) => m[1]);
+    const scannedTopDirs = new Set(
+      config.scannedFiles.map((p: string) => p.split('/')[0]).filter(Boolean)
     );
+    const diffTopDirs = new Set(
+      diffPaths.map((p) => p.split('/')[0]).filter(Boolean)
+    );
+    const hasNewTopDirs = [...diffTopDirs].some((d) => !scannedTopDirs.has(d));
+
+    if (hasNewTopDirs) {
+      lines.push('');
+      lines.push(chalk.dim('    Tip: new areas of the codebase detected. Run `changelog refresh` to update your project context.'));
+    }
   }
 
-  console.log(chalk.dim('\nSaved to database and CHANGELOG.md.'));
-  console.log(chalk.bold('\n→ Run `changelog serve` to view your changelog on the web.\n'));
+  lines.push('');
+  lines.push('    Saved changelog to database.');
+  lines.push(chalk.dim('    Run `changelog serve` to view your changelog on the web.'));
+  lines.push('');
+
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (const line of lines) {
+    await delay(80);
+    console.log(line);
+  }
 }

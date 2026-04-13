@@ -18,18 +18,29 @@ function getClient(): OpenAI {
 
 const MAX_RETRIES = 5;
 
+// Active spinner reference — set by callers so rate-limit messages appear inline
+let _activeSpinner: { text: string } | null = null;
+export function setActiveSpinner(spinner: { text: string } | null) {
+  _activeSpinner = spinner;
+}
+
 async function chatWithRetry(
   params: ChatCompletionCreateParamsNonStreaming
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  const originalText = _activeSpinner?.text ?? '';
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      return await getClient().chat.completions.create(params);
+      const result = await getClient().chat.completions.create(params);
+      if (_activeSpinner && originalText) _activeSpinner.text = originalText;
+      return result;
     } catch (err: any) {
       if (err?.status === 429 && attempt < MAX_RETRIES - 1) {
         const retryMs = parseInt(err?.headers?.['retry-after-ms'], 10);
         const waitMs = retryMs > 0 ? retryMs : (attempt + 1) * 15_000;
         const waitSec = (waitMs / 1000).toFixed(0);
-        process.stdout.write(`  Rate limited — retrying in ${waitSec}s...\n`);
+        if (_activeSpinner) {
+          _activeSpinner.text = `${originalText}  Rate limited — retrying in ${waitSec}s...`;
+        }
         await new Promise((r) => setTimeout(r, waitMs));
         continue;
       }
@@ -105,6 +116,7 @@ Return as JSON: { "projectContext": "...", "suggestedTags": [...] }`,
 export interface ChangelogEntry {
   title: string;
   description: string;
+  details: string;
   tags: string[];
 }
 
@@ -115,6 +127,12 @@ export interface GenerateResult {
 }
 
 export const DIFF_LIMIT = 30_000;
+
+const BLOCKED_TAGS = new Set(['documentation', 'docs', 'refactor', 'testing', 'ci/cd', 'dependencies']);
+
+function filterBlockedTags(tags: string[]): string[] {
+  return tags.filter((t) => !BLOCKED_TAGS.has(t.toLowerCase()));
+}
 
 export interface GenerateOptions {
   audience?: string;
@@ -179,12 +197,11 @@ ${chunk}
 
 Write changelog entries targeted at external developers who integrate with this product (via its API, SDK, or CLI).
 
-Each entry should be scannable in ~20 seconds and answer:
-- What changed
-- Why it matters / who should care
-- Whether any action is required — and if so, exactly what
+Each entry has two text fields:
+- "description": A short, technical summary of WHAT changed. One to two sentences. Include specifics like endpoint paths, function names, flag names, or config keys. Think of this as the at-a-glance line.
+- "details": A longer explanation (2-4 sentences) of WHY it matters, WHO should care, and WHETHER any action is required. Include migration steps for breaking changes.
 
-When an entry involves any of the following, include the relevant technical detail directly in the description:
+When an entry involves any of the following, include the relevant technical detail in the description and/or details:
 - API endpoints: include method and path (e.g. "PATCH /v1/users/:id")
 - SDK method changes: include the old and new call signature or usage
 - Request/response schema changes: name the added, removed, or renamed fields
@@ -195,11 +212,12 @@ When an entry involves any of the following, include the relevant technical deta
 - Webhook payload changes: describe what changed in the payload structure
 - New required parameters: name the parameter and where it goes
 
-Do NOT include internal refactors, test changes, CI/CD changes, or dependency bumps unless they have a direct effect on integrators.
+Do NOT include internal refactors, test changes, CI/CD changes, documentation changes, or dependency bumps unless they have a direct effect on integrators.
+- Never use "Documentation" as a tag — documentation is internal, not user-facing
 - Each entry should have ALL tags from the available list that apply to it (can be multiple)
 - If an entry represents something genuinely novel that doesn't fit any existing tag, invent a concise new tag and include it in both the entry's tags array AND in the top-level "newTags" array
 - If there are no user-facing changes in this portion, return an empty entries array
-- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tags": ["tag1", "tag2"] }], "newTags": [] }`;
+- Return as JSON: { "entries": [{ "title": "...", "description": "...", "details": "...", "tags": ["tag1", "tag2"] }], "newTags": [] }`;
 }
 
 async function mapDiffChunk(
@@ -218,9 +236,10 @@ async function mapDiffChunk(
   });
 
   const result = JSON.parse(response.choices[0].message.content ?? '{"entries":[],"newTags":[]}');
+  const entries = (result.entries ?? []).map((e: any) => ({ ...e, tags: filterBlockedTags(e.tags ?? []) }));
   return {
-    entries: result.entries ?? [],
-    newTags: result.newTags ?? [],
+    entries,
+    newTags: filterBlockedTags(result.newTags ?? []),
   };
 }
 
@@ -253,10 +272,13 @@ Here are all the raw entries (may contain duplicates or closely related items fr
 ${JSON.stringify(allEntries, null, 2)}
 </entries>
 
-Merge duplicates and closely related entries into single entries. Remove anything that is purely internal or implementation-level. Keep all distinct user-facing changes.
+Merge duplicates and closely related entries into single entries. Remove anything that is purely internal or implementation-level (including documentation-only changes). Keep all distinct user-facing changes.
+- Never use "Documentation" as a tag — documentation is internal, not user-facing
+- "description" should be a short, technical one-to-two-sentence summary of WHAT changed
+- "details" should be a longer 2-4 sentence explanation of WHY it matters and what action is needed
 - Each entry should have ALL tags from the available list that apply to it (can be multiple)
 - If a genuinely new tag is still needed, include it in "newTags"
-- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tags": ["tag1"] }], "newTags": [] }`,
+- Return as JSON: { "entries": [{ "title": "...", "description": "...", "details": "...", "tags": ["tag1"] }], "newTags": [] }`,
       },
     ],
     response_format: { type: 'json_object' },
@@ -264,9 +286,10 @@ Merge duplicates and closely related entries into single entries. Remove anythin
   });
 
   const result = JSON.parse(response.choices[0].message.content ?? '{"entries":[],"newTags":[]}');
+  const entries = (result.entries ?? []).map((e: any) => ({ ...e, tags: filterBlockedTags(e.tags ?? []) }));
   return {
-    entries: result.entries ?? [],
-    newTags: result.newTags ?? [],
+    entries,
+    newTags: filterBlockedTags(result.newTags ?? []),
   };
 }
 

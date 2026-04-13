@@ -47,7 +47,7 @@ export default function IndexPage({ changelogs, tags, productName }: Props) {
       </Head>
 
       <div className="min-h-screen bg-white">
-        <div className="max-w-3xl mx-auto px-6 py-16">
+        <div className="max-w-4xl mx-auto px-6 py-16">
           {/* Header */}
           <div className="mb-12">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">{productName} Changelog</h1>
@@ -79,8 +79,8 @@ export default function IndexPage({ changelogs, tags, productName }: Props) {
             </div>
           ) : (
             <div>
-              {filtered.map((cl) => (
-                <ChangelogEntry key={cl.id} changelog={cl} />
+              {filtered.map((cl, i) => (
+                <ChangelogEntry key={cl.id} changelog={cl} isLast={i === filtered.length - 1} />
               ))}
             </div>
           )}

@@ -24,6 +24,7 @@ program
   .description('Generate changelog entries from git diff')
   .option('--from <ref>', 'Starting git ref (default: last generated commit)')
   .option('--to <ref>', 'Ending git ref (default: HEAD)')
+  .option('--date <date>', 'Override changelog date (YYYY-MM-DD, default: today)')
   .action(generateCommand);
 
 program
