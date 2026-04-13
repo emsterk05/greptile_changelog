@@ -51,11 +51,11 @@ This will scan your codebase, use AI to understand your project, and prompt you 
 | `changelog init` | Set up changelog in the current git repo |
 | `changelog generate` | Generate entries from commits since last run |
 | `changelog generate --from <ref> --to <ref>` | Generate entries for a specific commit range |
+| `changelog serve` | Start local website at `http://localhost:3000` |
 | `changelog config` | Edit preferences interactively |
 | `changelog refresh` | Re-scan codebase to update project context |
 | `changelog history` | Show entries from the last generate run |
 | `changelog history -n 5` | Show entries from the last 5 generate runs |
-| `changelog serve` | Start local website at `http://localhost:3000` |
 
 ## Tags
 
