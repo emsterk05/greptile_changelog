@@ -1,6 +1,6 @@
 # AI Changelog Generator
 
-An AI-powered CLI tool that reads your git history and automatically generates a public-facing changelog for your project. It uses the actual code diff (not commit messages) to write clear, user-friendly changelog entries via GPT-4o. It also spins up a local website to display your changelog.
+An AI-powered CLI tool that reads your git history and automatically generates a public-facing changelog for your project. It uses the code diff (not commit messages) to write clear, user-friendly changelog entries via GPT-4o. It also hosts a local website to display your changelog.
 
 ## How It Works
 
