@@ -126,7 +126,7 @@ Available tags: ${tags.join(', ')}
 ${alwaysIncludeSection}
 Here is the cumulative diff of all changes since the last changelog:
 <diff>
-${diff.slice(0, DIFF_LIMIT)}
+${diff}
 </diff>
 
 Write changelog entries that describe changes from the perspective of an end user.

@@ -12,6 +12,24 @@ interface GenerateOptions {
   to?: string;
 }
 
+// Split a diff into chunks of at most maxBytes, splitting only at file boundaries.
+function splitDiffIntoChunks(diff: string, maxBytes: number): string[] {
+  const parts = diff.split(/(?=^diff --git )/m);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const part of parts) {
+    if (current.length + part.length > maxBytes && current.length > 0) {
+      chunks.push(current);
+      current = part;
+    } else {
+      current += part;
+    }
+  }
+  if (current.trim()) chunks.push(current);
+  return chunks;
+}
+
 // Match a glob pattern against a file path.
 // Supports * (within a segment), ** (across segments), and ? (single char).
 function matchGlob(filePath: string, pattern: string): boolean {
@@ -107,29 +125,35 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     }
   }
 
-  // Warn if diff exceeds the limit and will be truncated
-  if (diff.length > DIFF_LIMIT) {
-    console.warn(
-      chalk.yellow(
-        `Warning: diff is ${(diff.length / 1024).toFixed(0)}KB — only the first ${(DIFF_LIMIT / 1024).toFixed(0)}KB will be analyzed.\n` +
-        `Changes at the end of the diff may be missed.\n` +
-        `Tip: use --from/--to to generate over a smaller commit range.\n`
+  const generateOptions = {
+    audience: config.audience || undefined,
+    alwaysInclude: config.alwaysInclude,
+    model: config.model,
+  };
+
+  let entries: Awaited<ReturnType<typeof generateChangelog>>['entries'];
+  let newTags: string[];
+
+  if (diff.length <= DIFF_LIMIT) {
+    console.log(chalk.dim(`Diff: ${(diff.length / 1024).toFixed(1)}KB — calling OpenAI...\n`));
+    ({ entries, newTags } = await generateChangelog(
+      config.projectContext, config.tags, diff, generateOptions
+    ));
+  } else {
+    const chunks = splitDiffIntoChunks(diff, DIFF_LIMIT);
+    console.log(
+      chalk.dim(
+        `Diff: ${(diff.length / 1024).toFixed(1)}KB — splitting into ${chunks.length} chunks and calling OpenAI in parallel...\n`
       )
     );
+    const results = await Promise.all(
+      chunks.map((chunk) =>
+        generateChangelog(config.projectContext, config.tags, chunk, generateOptions)
+      )
+    );
+    entries = results.flatMap((r) => r.entries);
+    newTags = [...new Set(results.flatMap((r) => r.newTags))];
   }
-
-  console.log(chalk.dim(`Diff: ${(diff.length / 1024).toFixed(1)}KB — calling OpenAI...\n`));
-
-  const { entries, newTags } = await generateChangelog(
-    config.projectContext,
-    config.tags,
-    diff,
-    {
-      audience: config.audience || undefined,
-      alwaysInclude: config.alwaysInclude,
-      model: config.model,
-    }
-  );
 
   if (entries.length === 0) {
     console.log(chalk.yellow('No user-facing changes found in this diff.'));
