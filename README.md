@@ -1,12 +1,12 @@
 # AI Changelog Generator
 
-An AI-powered CLI tool that reads your git history and automatically generates a public-facing changelog for your project. It uses the code diff (not commit messages) to write clear, user-friendly changelog entries via GPT-4o. It also hosts a local website to display your changelog.
+An AI-powered CLI tool that reads your git history and automatically generates a public-facing changelog for your project. It uses the code diff (not commit messages) to write clear, user-friendly changelog entries. It also hosts a local website to display your changelog.
 
 ## Requirements
 
 - Node.js 18+
 - A git repo with at least one commit
-- An OpenAI API key (GPT-4o access) exported as `OPENAI_API_KEY` in your shell
+- An OpenAI API key exported as `OPENAI_API_KEY` in your shell
 
 
 ## How It Works
@@ -97,7 +97,7 @@ Run `changelog config` to open an interactive menu:
 - **Audience** — describes who reads the changelog, e.g. *"backend engineers integrating this API"*. Shapes the writing style and technical depth of generated entries. Defaults to external developers using the product's API or SDK.
 
 ### Model
-Override the OpenAI model used for generation. Options: `gpt-4o` (default), `gpt-4o-mini`, `gpt-4-turbo`, or any custom model ID.
+Override the OpenAI model used for generation. Use any custom model ID.
 
 ### Display
 - **Project name** — shown in the website header
