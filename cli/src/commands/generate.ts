@@ -70,18 +70,18 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     process.exit(1);
   }
 
-  // Warn if not on the default branch
+  // Abort if not on the default branch
   if (!options.from && !options.to) {
     const current = getCurrentBranch(cwd);
     const defaultBranch = getDefaultBranch(cwd);
     if (current && defaultBranch && current !== defaultBranch) {
-      console.warn(
-        chalk.yellow(
-          `Warning: You are on branch "${current}", not "${defaultBranch}".\n` +
-          `Changelogs should be generated from the default branch to capture all merged changes.\n` +
-          `Switch to "${defaultBranch}" or use --from/--to to set an explicit range.\n`
+      console.error(
+        chalk.red(
+          `Error: You are on branch "${current}", not "${defaultBranch}".\n` +
+          `Switch to "${defaultBranch}" before generating a changelog.`
         )
       );
+      process.exit(1);
     }
   }
 
