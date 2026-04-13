@@ -64,7 +64,7 @@ export async function refreshCommand(): Promise<void> {
   const existing = readConfig(cwd);
 
   writeConfig(
-    { projectContext, tags: existing.tags, scannedFiles: prioritized },
+    { ...existing, projectContext, tags: existing.tags, scannedFiles: prioritized },
     cwd
   );
 

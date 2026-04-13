@@ -15,13 +15,16 @@ export interface ChangelogRow {
   created_at: string;
 }
 
-export interface EntryRow {
+interface RawEntryRow {
   id: string;
   changelog_id: string;
   title: string;
   description: string;
-  tag: string;
   position: number;
+}
+
+export interface EntryRow extends RawEntryRow {
+  tags: string[];
 }
 
 export interface ChangelogWithEntries extends ChangelogRow {
@@ -34,6 +37,7 @@ function openDb(cwd: string = process.cwd()): Database.Database {
 
 export function initDb(cwd: string = process.cwd()): void {
   const db = openDb(cwd);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS state (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -54,13 +58,56 @@ export function initDb(cwd: string = process.cwd()): void {
       changelog_id TEXT NOT NULL REFERENCES changelogs(id),
       title TEXT NOT NULL,
       description TEXT NOT NULL,
-      tag TEXT NOT NULL,
       position INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS entry_tags (
+      entry_id TEXT NOT NULL REFERENCES entries(id),
+      tag TEXT NOT NULL,
+      PRIMARY KEY (entry_id, tag)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_entry_tags_entry ON entry_tags(entry_id);
+    CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON entry_tags(tag);
 
     INSERT OR IGNORE INTO state (id, last_commit_hash, generate_count)
     VALUES (1, NULL, 0);
   `);
+
+  // Migrate from old schemas that stored tags in the entries table itself
+  const cols = db.prepare('PRAGMA table_info(entries)').all() as { name: string }[];
+  const hasTagsJson = cols.some((c) => c.name === 'tags');
+  const hasTagSingle = cols.some((c) => c.name === 'tag');
+
+  if (hasTagsJson || hasTagSingle) {
+    const insertTag = db.prepare(
+      'INSERT OR IGNORE INTO entry_tags (entry_id, tag) VALUES (?, ?)'
+    );
+    if (hasTagsJson) {
+      const rows = db
+        .prepare("SELECT id, tags FROM entries WHERE tags IS NOT NULL AND tags != '[]'")
+        .all() as { id: string; tags: string }[];
+      const migrate = db.transaction(() => {
+        for (const row of rows) {
+          for (const tag of JSON.parse(row.tags) as string[]) {
+            insertTag.run(row.id, tag);
+          }
+        }
+      });
+      migrate();
+    } else {
+      const rows = db
+        .prepare('SELECT id, tag FROM entries WHERE tag IS NOT NULL')
+        .all() as { id: string; tag: string }[];
+      const migrate = db.transaction(() => {
+        for (const row of rows) {
+          insertTag.run(row.id, row.tag);
+        }
+      });
+      migrate();
+    }
+  }
+
   db.close();
 }
 
@@ -88,7 +135,29 @@ export function updateState(
 export interface ChangelogEntry {
   title: string;
   description: string;
-  tag: string;
+  tags: string[];
+}
+
+function loadTagsForEntries(
+  db: Database.Database,
+  rows: RawEntryRow[]
+): EntryRow[] {
+  if (rows.length === 0) return [];
+  const placeholders = rows.map(() => '?').join(',');
+  const ids = rows.map((e) => e.id);
+  const tagRows = db
+    .prepare(
+      `SELECT entry_id, tag FROM entry_tags WHERE entry_id IN (${placeholders}) ORDER BY tag ASC`
+    )
+    .all(...ids) as { entry_id: string; tag: string }[];
+
+  const tagsByEntry = new Map<string, string[]>();
+  for (const { entry_id, tag } of tagRows) {
+    if (!tagsByEntry.has(entry_id)) tagsByEntry.set(entry_id, []);
+    tagsByEntry.get(entry_id)!.push(tag);
+  }
+
+  return rows.map((e) => ({ ...e, tags: tagsByEntry.get(e.id) ?? [] }));
 }
 
 export function insertChangelog(
@@ -102,22 +171,51 @@ export function insertChangelog(
   const db = openDb(cwd);
   const createdAt = new Date().toISOString();
 
-  const insertChangelog = db.prepare(
+  const insertCl = db.prepare(
     'INSERT INTO changelogs (id, date, from_commit, to_commit, created_at) VALUES (?, ?, ?, ?, ?)'
   );
   const insertEntry = db.prepare(
-    'INSERT INTO entries (id, changelog_id, title, description, tag, position) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO entries (id, changelog_id, title, description, position) VALUES (?, ?, ?, ?, ?)'
+  );
+  const insertTag = db.prepare(
+    'INSERT OR IGNORE INTO entry_tags (entry_id, tag) VALUES (?, ?)'
   );
 
-  const run = db.transaction(() => {
-    insertChangelog.run(id, date, fromCommit, toCommit, createdAt);
-    entries.forEach((entry, i) => {
-      insertEntry.run(uuidv4(), id, entry.title, entry.description, entry.tag, i);
-    });
-  });
+  db.transaction(() => {
+    insertCl.run(id, date, fromCommit, toCommit, createdAt);
+    for (let i = 0; i < entries.length; i++) {
+      const entryId = uuidv4();
+      const { title, description, tags } = entries[i];
+      insertEntry.run(entryId, id, title, description, i);
+      for (const tag of tags) {
+        insertTag.run(entryId, tag);
+      }
+    }
+  })();
 
-  run();
   db.close();
+}
+
+export function getRecentChangelogs(
+  limit: number,
+  cwd: string = process.cwd()
+): ChangelogWithEntries[] {
+  const db = openDb(cwd);
+  const changelogs = db
+    .prepare('SELECT * FROM changelogs ORDER BY date DESC, created_at DESC LIMIT ?')
+    .all(limit) as ChangelogRow[];
+
+  const getEntries = db.prepare(
+    'SELECT * FROM entries WHERE changelog_id = ? ORDER BY position ASC'
+  );
+
+  const result = changelogs.map((cl) => ({
+    ...cl,
+    entries: loadTagsForEntries(db, getEntries.all(cl.id) as RawEntryRow[]),
+  }));
+
+  db.close();
+  return result;
 }
 
 export function getAllChangelogs(cwd: string = process.cwd()): ChangelogWithEntries[] {
@@ -132,7 +230,7 @@ export function getAllChangelogs(cwd: string = process.cwd()): ChangelogWithEntr
 
   const result = changelogs.map((cl) => ({
     ...cl,
-    entries: getEntries.all(cl.id) as EntryRow[],
+    entries: loadTagsForEntries(db, getEntries.all(cl.id) as RawEntryRow[]),
   }));
 
   db.close();
@@ -153,10 +251,11 @@ export function getChangelogById(
     return null;
   }
 
-  const entries = db
+  const rawEntries = db
     .prepare('SELECT * FROM entries WHERE changelog_id = ? ORDER BY position ASC')
-    .all(id) as EntryRow[];
+    .all(id) as RawEntryRow[];
 
+  const entries = loadTagsForEntries(db, rawEntries);
   db.close();
   return { ...changelog, entries };
 }
@@ -164,7 +263,7 @@ export function getChangelogById(
 export function getAllTags(cwd: string = process.cwd()): string[] {
   const db = openDb(cwd);
   const rows = db
-    .prepare('SELECT DISTINCT tag FROM entries ORDER BY tag ASC')
+    .prepare('SELECT DISTINCT tag FROM entry_tags ORDER BY tag ASC')
     .all() as { tag: string }[];
   db.close();
   return rows.map((r) => r.tag);

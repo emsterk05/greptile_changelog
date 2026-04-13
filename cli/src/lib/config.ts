@@ -2,10 +2,26 @@ import fs from 'fs';
 import path from 'path';
 
 export interface Config {
+  productName: string;
   projectContext: string;
   tags: string[];
   scannedFiles: string[];
+  alwaysInclude: string[];
+  excludePatterns: string[];
+  audience: string;
+  model: string;
+  projectName: string;
+  dateFormat: string;
 }
+
+const DEFAULTS: Omit<Config, 'productName' | 'projectContext' | 'tags' | 'scannedFiles'> = {
+  alwaysInclude: [],
+  excludePatterns: [],
+  audience: '',
+  model: 'gpt-4o',
+  projectName: '',
+  dateFormat: 'YYYY-MM-DD',
+};
 
 const CONFIG_DIR = '.changelog';
 const CONFIG_FILE = 'config.json';
@@ -31,7 +47,8 @@ export function readConfig(cwd: string = process.cwd()): Config {
   if (!fs.existsSync(configPath)) {
     throw new Error('Changelog not initialized. Run `changelog init` first.');
   }
-  return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  return { ...DEFAULTS, ...raw };
 }
 
 export function writeConfig(config: Config, cwd: string = process.cwd()): void {

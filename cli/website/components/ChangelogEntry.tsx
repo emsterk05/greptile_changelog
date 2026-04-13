@@ -37,7 +37,9 @@ export default function ChangelogEntry({ changelog }: Props) {
               <h2 className="text-base font-semibold text-gray-900 leading-snug">
                 {entry.title}
               </h2>
-              <TagBadge tag={entry.tag} size="sm" />
+              {entry.tags.map((tag) => (
+                <TagBadge key={tag} tag={tag} size="sm" />
+              ))}
             </div>
             <p className="text-sm text-gray-500 leading-relaxed">{entry.description}</p>
           </div>

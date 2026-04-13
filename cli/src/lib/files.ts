@@ -33,7 +33,7 @@ function formatMarkdownSection(data: ChangelogData): string {
   const lines: string[] = [`## ${data.date}`, ''];
   for (const entry of data.entries) {
     lines.push(`### ${entry.title}`);
-    lines.push(`**${entry.tag}**`);
+    lines.push(entry.tags.map((t) => `**${t}**`).join(' '));
     lines.push('');
     lines.push(entry.description);
     lines.push('');

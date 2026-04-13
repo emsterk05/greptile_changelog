@@ -76,16 +76,40 @@ Return as JSON: { "projectContext": "...", "suggestedTags": [...] }`,
 export interface ChangelogEntry {
   title: string;
   description: string;
-  tag: string;
+  tags: string[];
+}
+
+export interface GenerateResult {
+  entries: ChangelogEntry[];
+  newTags: string[];
+}
+
+export const DIFF_LIMIT = 80_000;
+
+export interface GenerateOptions {
+  audience?: string;
+  alwaysInclude?: string[];
+  model?: string;
 }
 
 export async function generateChangelog(
   projectContext: string,
   tags: string[],
-  diff: string
-): Promise<ChangelogEntry[]> {
+  diff: string,
+  options: GenerateOptions = {}
+): Promise<GenerateResult> {
+  const { audience, alwaysInclude = [], model = 'gpt-4o' } = options;
+
+  const audienceLine = audience
+    ? `The intended readers of this changelog are: ${audience}.`
+    : 'The intended readers are developers using this tool.';
+
+  const alwaysIncludeSection = alwaysInclude.length
+    ? `\nAdditional rules:\n${alwaysInclude.map((r) => `- ${r}`).join('\n')}\n`
+    : '';
+
   const response = await getClient().chat.completions.create({
-    model: 'gpt-4o',
+    model,
     messages: [
       {
         role: 'user',
@@ -96,25 +120,31 @@ Project context:
 ${projectContext}
 </context>
 
-Available tags: ${tags.join(', ')}
+${audienceLine}
 
+Available tags: ${tags.join(', ')}
+${alwaysIncludeSection}
 Here is the cumulative diff of all changes since the last changelog:
 <diff>
-${diff.slice(0, 80000)}
+${diff.slice(0, DIFF_LIMIT)}
 </diff>
 
-Write changelog entries that describe changes from the perspective of an end user (another developer using this tool).
+Write changelog entries that describe changes from the perspective of an end user.
 - Focus on what changed and why it matters, not implementation details
 - Ignore internal refactors, test changes, and dependency bumps unless they affect the user
-- Each entry gets exactly one tag from the available tags list
+- Each entry should have ALL tags from the available list that apply to it (can be multiple)
+- If an entry represents something genuinely novel that doesn't fit any existing tag, invent a concise new tag and include it in both the entry's tags array AND in the top-level "newTags" array
 - If there are no user-facing changes, return an empty entries array
-- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tag": "..." }] }`,
+- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tags": ["tag1", "tag2"] }], "newTags": [] }`,
       },
     ],
     response_format: { type: 'json_object' },
     max_tokens: 2000,
   });
 
-  const result = JSON.parse(response.choices[0].message.content ?? '{"entries":[]}');
-  return result.entries ?? [];
+  const result = JSON.parse(response.choices[0].message.content ?? '{"entries":[],"newTags":[]}');
+  return {
+    entries: result.entries ?? [],
+    newTags: result.newTags ?? [],
+  };
 }

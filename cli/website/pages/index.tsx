@@ -1,7 +1,7 @@
 import React from 'react';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
-import { getAllChangelogs, getAllTags } from '../lib/db';
+import { getAllChangelogs, getAllTags, getProductName } from '../lib/db';
 import type { ChangelogWithEntries } from '../lib/db';
 import ChangelogEntry from '../components/ChangelogEntry';
 import TagFilter from '../components/TagFilter';
@@ -10,13 +10,14 @@ interface Props {
   changelogs: ChangelogWithEntries[];
   tags: string[];
   activeTag: string | null;
+  productName: string;
 }
 
-export default function IndexPage({ changelogs, tags, activeTag }: Props) {
+export default function IndexPage({ changelogs, tags, activeTag, productName }: Props) {
   return (
     <>
       <Head>
-        <title>Changelog</title>
+        <title>{productName} Changelog</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
@@ -24,7 +25,7 @@ export default function IndexPage({ changelogs, tags, activeTag }: Props) {
         <div className="max-w-3xl mx-auto px-6 py-16">
           {/* Header */}
           <div className="mb-12">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Changelog</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{productName} Changelog</h1>
             <p className="text-gray-400 text-sm">
               New updates and improvements, newest first.
             </p>
@@ -64,12 +65,14 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ query }) =
 
   const changelogs = getAllChangelogs(tag ?? undefined);
   const tags = getAllTags();
+  const productName = getProductName();
 
   return {
     props: {
       changelogs,
       tags,
       activeTag: tag,
+      productName,
     },
   };
 };

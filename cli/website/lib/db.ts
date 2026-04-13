@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import fs from 'fs';
 
 export interface ChangelogRow {
   id: string;
@@ -8,13 +9,16 @@ export interface ChangelogRow {
   created_at: string;
 }
 
-export interface EntryRow {
+interface RawEntryRow {
   id: string;
   changelog_id: string;
   title: string;
   description: string;
-  tag: string;
   position: number;
+}
+
+export interface EntryRow extends RawEntryRow {
+  tags: string[];
 }
 
 export interface ChangelogWithEntries extends ChangelogRow {
@@ -31,6 +35,25 @@ function openDb(): Database.Database {
   return new Database(getDbPath(), { readonly: true });
 }
 
+function loadTagsForEntries(db: Database.Database, rows: RawEntryRow[]): EntryRow[] {
+  if (rows.length === 0) return [];
+  const placeholders = rows.map(() => '?').join(',');
+  const ids = rows.map((e) => e.id);
+  const tagRows = db
+    .prepare(
+      `SELECT entry_id, tag FROM entry_tags WHERE entry_id IN (${placeholders}) ORDER BY tag ASC`
+    )
+    .all(...ids) as { entry_id: string; tag: string }[];
+
+  const tagsByEntry = new Map<string, string[]>();
+  for (const { entry_id, tag } of tagRows) {
+    if (!tagsByEntry.has(entry_id)) tagsByEntry.set(entry_id, []);
+    tagsByEntry.get(entry_id)!.push(tag);
+  }
+
+  return rows.map((e) => ({ ...e, tags: tagsByEntry.get(e.id) ?? [] }));
+}
+
 export function getAllChangelogs(tag?: string): ChangelogWithEntries[] {
   const db = openDb();
 
@@ -38,23 +61,23 @@ export function getAllChangelogs(tag?: string): ChangelogWithEntries[] {
     .prepare('SELECT * FROM changelogs ORDER BY date DESC, created_at DESC')
     .all() as ChangelogRow[];
 
+  const getEntries = tag
+    ? db.prepare(
+        `SELECT e.* FROM entries e
+         JOIN entry_tags et ON et.entry_id = e.id AND et.tag = ?
+         WHERE e.changelog_id = ?
+         ORDER BY e.position ASC`
+      )
+    : db.prepare('SELECT * FROM entries WHERE changelog_id = ? ORDER BY position ASC');
+
   const result: ChangelogWithEntries[] = [];
-
   for (const cl of changelogs) {
-    const entries = (
-      tag
-        ? db
-            .prepare(
-              'SELECT * FROM entries WHERE changelog_id = ? AND tag = ? ORDER BY position ASC'
-            )
-            .all(cl.id, tag)
-        : db
-            .prepare('SELECT * FROM entries WHERE changelog_id = ? ORDER BY position ASC')
-            .all(cl.id)
-    ) as EntryRow[];
+    const rawEntries = (
+      tag ? getEntries.all(tag, cl.id) : getEntries.all(cl.id)
+    ) as RawEntryRow[];
 
-    if (entries.length > 0) {
-      result.push({ ...cl, entries });
+    if (rawEntries.length > 0) {
+      result.push({ ...cl, entries: loadTagsForEntries(db, rawEntries) });
     }
   }
 
@@ -74,10 +97,11 @@ export function getChangelogById(id: string): ChangelogWithEntries | null {
     return null;
   }
 
-  const entries = db
+  const rawEntries = db
     .prepare('SELECT * FROM entries WHERE changelog_id = ? ORDER BY position ASC')
-    .all(id) as EntryRow[];
+    .all(id) as RawEntryRow[];
 
+  const entries = loadTagsForEntries(db, rawEntries);
   db.close();
   return { ...changelog, entries };
 }
@@ -85,8 +109,19 @@ export function getChangelogById(id: string): ChangelogWithEntries | null {
 export function getAllTags(): string[] {
   const db = openDb();
   const rows = db
-    .prepare('SELECT DISTINCT tag FROM entries ORDER BY tag ASC')
+    .prepare('SELECT DISTINCT tag FROM entry_tags ORDER BY tag ASC')
     .all() as { tag: string }[];
   db.close();
   return rows.map((r) => r.tag);
+}
+
+export function getProductName(): string {
+  const configPath = process.env.CONFIG_PATH;
+  if (!configPath || !fs.existsSync(configPath)) return 'Changelog';
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return config.productName || 'Changelog';
+  } catch {
+    return 'Changelog';
+  }
 }

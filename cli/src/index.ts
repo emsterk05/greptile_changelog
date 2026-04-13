@@ -5,6 +5,8 @@ import { initCommand } from './commands/init';
 import { generateCommand } from './commands/generate';
 import { serveCommand } from './commands/serve';
 import { refreshCommand } from './commands/refresh';
+import { historyCommand } from './commands/history';
+import { configCommand } from './commands/config';
 
 const program = new Command();
 
@@ -29,6 +31,17 @@ program
   .command('refresh')
   .description('Re-scan codebase and update project context')
   .action(refreshCommand);
+
+program
+  .command('history')
+  .description('Show recent changelog generate runs')
+  .option('-n, --count <n>', 'Number of runs to show', '1')
+  .action(historyCommand);
+
+program
+  .command('config')
+  .description('Configure changelog preferences interactively')
+  .action(configCommand);
 
 program
   .command('serve')

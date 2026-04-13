@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs';
 import { spawn, execSync } from 'child_process';
-import { getDbPath, configExists } from '../lib/config';
+import { getDbPath, getConfigPath, configExists } from '../lib/config';
 
 interface ServeOptions {
   port: string;
@@ -17,6 +17,7 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   }
 
   const dbPath = getDbPath(cwd);
+  const configPath = getConfigPath(cwd);
   if (!fs.existsSync(dbPath)) {
     console.error(chalk.red('Error: Database not found. Run `changelog init` first.'));
     process.exit(1);
@@ -49,6 +50,7 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
     env: {
       ...process.env,
       DB_PATH: dbPath,
+      CONFIG_PATH: configPath,
     },
     stdio: 'inherit',
   });

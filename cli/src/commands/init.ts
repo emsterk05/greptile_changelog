@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import { isGitRepo, listTrackedFiles } from '../lib/git';
 import { shouldIncludeFile, prioritizeFiles } from '../lib/files';
 import { mapFiles, reduceToContext } from '../lib/openai';
@@ -27,6 +28,15 @@ export async function initCommand(): Promise<void> {
     console.log(chalk.dim('Run `changelog refresh` to update your project context.'));
     return;
   }
+
+  // Prompt for product name
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const productName = await new Promise<string>((resolve) => {
+    rl.question(chalk.bold('Product or company name (shown on changelog website): '), (answer) => {
+      rl.close();
+      resolve(answer.trim() || 'Changelog');
+    });
+  });
 
   console.log(chalk.bold('\nScanning codebase...\n'));
 
@@ -83,7 +93,18 @@ export async function initCommand(): Promise<void> {
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  writeConfig({ projectContext, tags: suggestedTags, scannedFiles: prioritized }, cwd);
+  writeConfig({
+    productName,
+    projectContext,
+    tags: suggestedTags,
+    scannedFiles: prioritized,
+    alwaysInclude: [],
+    excludePatterns: [],
+    audience: '',
+    model: 'gpt-4o',
+    projectName: '',
+    dateFormat: 'YYYY-MM-DD',
+  }, cwd);
   initDb(cwd);
 
   // Create CHANGELOG.md

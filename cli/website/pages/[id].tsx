@@ -2,12 +2,13 @@ import React from 'react';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import Link from 'next/link';
-import { getChangelogById } from '../lib/db';
+import { getChangelogById, getProductName } from '../lib/db';
 import type { ChangelogWithEntries } from '../lib/db';
 import TagBadge from '../components/TagBadge';
 
 interface Props {
   changelog: ChangelogWithEntries;
+  productName: string;
 }
 
 function formatDate(dateStr: string): string {
@@ -15,11 +16,11 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-export default function ChangelogDetailPage({ changelog }: Props) {
+export default function ChangelogDetailPage({ changelog, productName }: Props) {
   return (
     <>
       <Head>
-        <title>Changelog — {changelog.date}</title>
+        <title>{productName} Changelog — {changelog.date}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
@@ -51,7 +52,9 @@ export default function ChangelogDetailPage({ changelog }: Props) {
               <div key={entry.id} className="border-b border-gray-100 pb-10 last:border-0">
                 <div className="flex flex-wrap items-start gap-2 mb-3">
                   <h2 className="text-lg font-semibold text-gray-900">{entry.title}</h2>
-                  <TagBadge tag={entry.tag} />
+                  {entry.tags.map((tag) => (
+                    <TagBadge key={tag} tag={tag} />
+                  ))}
                 </div>
                 <p className="text-gray-500 leading-relaxed">{entry.description}</p>
               </div>
@@ -71,5 +74,5 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ params }) 
   const changelog = getChangelogById(id);
   if (!changelog) return { notFound: true };
 
-  return { props: { changelog } };
+  return { props: { changelog, productName: getProductName() } };
 };
