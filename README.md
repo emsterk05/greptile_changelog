@@ -81,12 +81,6 @@ your-repo/
 
 # More Info
 
-## Detailed Instructions on Each Terminal Command
-
-To access this information inside the terminal, run ___
-
-
-
 ## Configuration
 
 Run `changelog config` to open an interactive menu:
