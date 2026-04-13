@@ -1,0 +1,91 @@
+[
+  {
+    "id": "a07ef09a-4ae3-4b3e-abaf-46991ff7a296",
+    "date": "2026-04-13",
+    "from_commit": "9df3716a969a9eb6b188907cbf773e07952bd8fe",
+    "to_commit": "89a34a44b7a6a5311dc84f3b8a1b8b45c0905aea",
+    "created_at": "2026-04-13T22:21:21.495Z",
+    "entries": [
+      {
+        "id": "32a1dfde-ea86-4eef-bb3c-1a6d93aaeb74",
+        "changelog_id": "a07ef09a-4ae3-4b3e-abaf-46991ff7a296",
+        "title": "New Query Operators for String Fields",
+        "description": "Added new query operators 'contains', 'startsWith', and 'endsWith' for string fields.",
+        "details": "This update introduces new operators that enable more flexible querying of text fields in JSON data. Developers can now filter results using 'contains', 'startsWith', and 'endsWith' queries, enhancing string handling capabilities for GET requests. This improvement requires no action from existing users, but new queries can be implemented immediately to take advantage of these operators.",
+        "position": 0,
+        "tags": [
+          "API",
+          "New Feature"
+        ]
+      },
+      {
+        "id": "5b86ab90-f6af-438d-a5f4-8be780619388",
+        "changelog_id": "a07ef09a-4ae3-4b3e-abaf-46991ff7a296",
+        "title": "Error Handling Enhancements for Invalid Request Bodies",
+        "description": "Improved the error response for invalid request bodies in POST, PATCH, and PUT operations.",
+        "details": "To provide clearer feedback when a client sends an invalid body, POST, PATCH, and PUT endpoints will now return a 400 status code with an explanatory message if the body is not a valid JSON object. Developers should ensure their request payloads adhere to expected formats to prevent disruptions. This should reduce debugging time and improve API client reliability.",
+        "position": 1,
+        "tags": [
+          "API",
+          "UI / UX"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "155c1895-f75f-4b7a-9b12-e19034a1f23b",
+    "date": "2026-04-12",
+    "from_commit": "ae8bfc0e0940722f8bef98ce95b5eea9139d6df4",
+    "to_commit": "9df3716a969a9eb6b188907cbf773e07952bd8fe",
+    "created_at": "2026-04-13T22:10:25.998Z",
+    "entries": [
+      {
+        "id": "52439278-7f93-4c29-8b08-d7757b5a32f2",
+        "changelog_id": "155c1895-f75f-4b7a-9b12-e19034a1f23b",
+        "title": "Enhanced Query Capabilities with JSON Query",
+        "description": "Introduced JSON-based filtering with a new '_where' parameter and advanced operations for API queries.",
+        "details": "The new '_where' parameter allows complex filtering using JSON objects, supporting logical operators and nested conditionals for more powerful querying. The 'parseWhere' function supports operations like 'gt', 'lt', 'eq', and 'in', enhancing query expressiveness. Developers should review existing queries to leverage these new capabilities, as traditional parameters are overridden if '_where' is used.",
+        "position": 0,
+        "tags": [
+          "API",
+          "New Feature"
+        ]
+      },
+      {
+        "id": "869528cf-69e7-431d-b959-0080e2cbce12",
+        "changelog_id": "155c1895-f75f-4b7a-9b12-e19034a1f23b",
+        "title": "Transition to MIT License",
+        "description": "License change from Fair Source License to MIT License.",
+        "details": "Switching to the MIT License removes usage restrictions and fees, simplifying the integration process for developers and organizations. Existing users are unaffected, but the change offers greater flexibility and clarity regarding usage permissions.",
+        "position": 1,
+        "tags": [
+          "New Feature"
+        ]
+      },
+      {
+        "id": "9d6055ff-a0ae-4e8f-84a5-9da04331dcd0",
+        "changelog_id": "155c1895-f75f-4b7a-9b12-e19034a1f23b",
+        "title": "Updated Pagination Parameters",
+        "description": "Revised pagination approach with `_per_page` and `_page`, replacing deprecated parameters.",
+        "details": "Standardizing pagination via '_per_page' and '_page' aligns the API with common practices, promoting consistency across user applications. The removal of the '--delay' CLI option necessitates using browser tools for testing network delays. Users must update their queries to accommodate these changes, ensuring continued functionality.",
+        "position": 2,
+        "tags": [
+          "API",
+          "Breaking"
+        ]
+      },
+      {
+        "id": "1a21cd78-13f3-4bb4-8997-4aad85f153da",
+        "changelog_id": "155c1895-f75f-4b7a-9b12-e19034a1f23b",
+        "title": "Improved Service.find Method",
+        "description": "Refactored Service.find to enhance sorting and pagination through 'paginate' and 'matchesWhere'.",
+        "details": "The revamped Service.find method now employs 'paginate' for effective pagination handling and 'matchesWhere' for complex filtering. This update not only boosts performance but also augments maintainability and user experience. Developers using custom Service.find implementations should review changes, although existing setups will remain operational.",
+        "position": 3,
+        "tags": [
+          "New Feature",
+          "Performance"
+        ]
+      }
+    ]
+  }
+]

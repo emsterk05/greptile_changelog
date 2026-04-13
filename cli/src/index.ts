@@ -6,6 +6,7 @@ import { serveCommand } from './commands/serve';
 import { refreshCommand } from './commands/refresh';
 import { historyCommand } from './commands/history';
 import { configCommand } from './commands/config';
+import { exportCommand } from './commands/export';
 
 const program = new Command();
 
@@ -48,5 +49,11 @@ program
   .description('Start local changelog website')
   .option('-p, --port <port>', 'Port to run on', '3000')
   .action(serveCommand);
+
+program
+  .command('export')
+  .description('Export changelog data as JSON for the Vercel website')
+  .option('-o, --out <dir>', 'Output directory', './export')
+  .action(exportCommand);
 
 program.parse();
