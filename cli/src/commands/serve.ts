@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import ora from 'ora';
 import path from 'path';
 import fs from 'fs';
 import { spawn, execSync } from 'child_process';
@@ -42,8 +43,7 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   const port = options.port ?? '3000';
   const nextBin = path.join(websiteDir, 'node_modules', '.bin', 'next');
 
-  console.log(chalk.green(`\nStarting changelog website → http://localhost:${port}\n`));
-  console.log(chalk.dim(`Database: ${dbPath}\n`));
+  const spinner = ora({ text: 'Starting changelog website', spinner: 'dots' }).start();
 
   const proc = spawn(nextBin, ['dev', '-p', port], {
     cwd: websiteDir,
@@ -52,11 +52,43 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
       DB_PATH: dbPath,
       CONFIG_PATH: configPath,
     },
-    stdio: 'inherit',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   proc.on('error', (err) => {
-    console.error(chalk.red(`Failed to start website: ${err.message}`));
+    spinner.fail(`Failed to start website: ${err.message}`);
     process.exit(1);
+  });
+
+  // Wait for Next.js to signal it's ready, then print our own message
+  let ready = false;
+  const onData = (data: Buffer) => {
+    if (!ready && data.toString().includes('Ready')) {
+      ready = true;
+      spinner.succeed('Changelog website is ready');
+      console.log(chalk.bold(`\n  http://localhost:${port}\n`));
+      console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
+    }
+  };
+  proc.stdout?.on('data', onData);
+  proc.stderr?.on('data', onData);
+
+  // Clean exit: forward signals to the child and wait for it to die
+  const cleanup = (signal: NodeJS.Signals) => {
+    if (ready) {
+      console.log(chalk.dim('\nShutting down...'));
+    }
+    proc.kill(signal);
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+
+  await new Promise<void>((resolve) => {
+    proc.on('close', (code) => {
+      process.off('SIGINT', cleanup);
+      process.off('SIGTERM', cleanup);
+      resolve();
+      process.exit(code ?? 0);
+    });
   });
 }

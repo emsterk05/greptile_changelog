@@ -6,7 +6,7 @@ An AI-powered CLI tool that reads your git history and automatically generates a
 
 - Node.js 18+
 - A git repo with at least one commit
-- An OpenAI API key (GPT-4o access) in a .env file in the root of the repo (OPENAI_API_KEY=sk-...)
+- An OpenAI API key (GPT-4o access) exported as `OPENAI_API_KEY` in your shell
 
 
 ## How It Works
@@ -29,17 +29,13 @@ npm install -g .
 
 ### 2. Add your OpenAI API key
 
-The CLI reads your key from a `.env` file. In the `cli/` directory:
+Export your key in your shell:
 
 ```bash
-cp .env.example .env
+export OPENAI_API_KEY=sk-your-key-here
 ```
 
-Open `.env` and fill in your key:
-
-```
-OPENAI_API_KEY=sk-your-key-here
-```
+To make it permanent, add the line above to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
 
 ### 3. Run it in your project
 

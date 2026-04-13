@@ -1,27 +1,22 @@
 import React from 'react';
-import { useRouter } from 'next/router';
-import TagBadge, { getTagColor } from './TagBadge';
+import { getTagColor } from './TagBadge';
 
 interface Props {
   tags: string[];
-  activeTag: string | null;
+  activeTags: string[];
+  onToggle: (tag: string) => void;
+  onClear: () => void;
 }
 
-export default function TagFilter({ tags, activeTag }: Props) {
-  const router = useRouter();
-
-  function handleTag(tag: string | null) {
-    router.push(tag ? `/?tag=${encodeURIComponent(tag)}` : '/', undefined, {
-      shallow: true,
-    });
-  }
+export default function TagFilter({ tags, activeTags, onToggle, onClear }: Props) {
+  const noneActive = activeTags.length === 0;
 
   return (
     <div className="flex flex-wrap gap-2 items-center">
       <button
-        onClick={() => handleTag(null)}
+        onClick={onClear}
         className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-          !activeTag
+          noneActive
             ? 'bg-gray-900 text-white border-gray-900'
             : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
         }`}
@@ -29,12 +24,12 @@ export default function TagFilter({ tags, activeTag }: Props) {
         All
       </button>
       {tags.map((tag) => {
-        const isActive = tag === activeTag;
+        const isActive = activeTags.includes(tag);
         const colors = getTagColor(tag);
         return (
           <button
             key={tag}
-            onClick={() => handleTag(isActive ? null : tag)}
+            onClick={() => onToggle(tag)}
             className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-opacity ${colors} ${
               isActive ? 'opacity-100 ring-2 ring-offset-1 ring-current' : 'opacity-70 hover:opacity-100'
             }`}

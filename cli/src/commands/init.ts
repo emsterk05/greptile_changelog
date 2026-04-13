@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import ora from 'ora';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
@@ -69,23 +70,46 @@ export async function initCommand(): Promise<void> {
     batches.push(fileContents.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(chalk.blue(`Analyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''} in parallel...`));
-
   // Map: analyze each batch in parallel
+  const mapSpinner = ora({
+    text: `Analyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''} in parallel`,
+    spinner: 'dots',
+  }).start();
+
   let completed = 0;
-  const partialSummaries = await Promise.all(
-    batches.map(async (batch) => {
-      const result = await mapFiles(batch);
-      completed++;
-      process.stdout.write(chalk.dim(`  ${completed}/${batches.length} complete\r`));
-      return result;
-    })
-  );
-  process.stdout.write('\n');
+  let partialSummaries: string[];
+  try {
+    partialSummaries = await Promise.all(
+      batches.map(async (batch) => {
+        const result = await mapFiles(batch);
+        completed++;
+        mapSpinner.text = `Analyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''} in parallel (${completed}/${batches.length})`;
+        return result;
+      })
+    );
+    mapSpinner.succeed(`Analyzed ${batches.length} batch${batches.length !== 1 ? 'es' : ''}`);
+  } catch (err) {
+    mapSpinner.fail('Batch analysis failed');
+    throw err;
+  }
 
   // Reduce: synthesize into project context + tags
-  console.log(chalk.blue('Building project context...'));
-  const { projectContext, suggestedTags } = await reduceToContext(partialSummaries);
+  const reduceSpinner = ora({
+    text: 'Building project context',
+    spinner: 'dots',
+  }).start();
+
+  let projectContext: string;
+  let suggestedTags: string[];
+  try {
+    const reduced = await reduceToContext(partialSummaries);
+    projectContext = reduced.projectContext;
+    suggestedTags = reduced.suggestedTags;
+    reduceSpinner.succeed('Project context built');
+  } catch (err) {
+    reduceSpinner.fail('Failed to build project context');
+    throw err;
+  }
 
   // Write config and initialize DB
   const configDir = getConfigDir(cwd);
@@ -114,9 +138,9 @@ export async function initCommand(): Promise<void> {
   }
 
   console.log(chalk.green('\n✓ Changelog initialized!\n'));
-  console.log(chalk.dim('Suggested tags:'));
+  console.log(chalk.dim('Tags:'));
   for (const tag of suggestedTags) {
-    console.log(chalk.cyan(`  · ${tag}`));
+    console.log(chalk.cyan(`  + ${tag}`));
   }
   console.log(chalk.dim('\nEdit .changelog/config.json to customize your tags.'));
   console.log(chalk.dim('Run `changelog generate` to create your first entry.\n'));

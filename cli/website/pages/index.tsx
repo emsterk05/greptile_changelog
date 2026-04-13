@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import { getAllChangelogs, getAllTags, getProductName } from '../lib/db';
@@ -9,11 +9,36 @@ import TagFilter from '../components/TagFilter';
 interface Props {
   changelogs: ChangelogWithEntries[];
   tags: string[];
-  activeTag: string | null;
   productName: string;
 }
 
-export default function IndexPage({ changelogs, tags, activeTag, productName }: Props) {
+export default function IndexPage({ changelogs, tags, productName }: Props) {
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+
+  function handleToggle(tag: string) {
+    setActiveTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  }
+
+  function handleClear() {
+    setActiveTags([]);
+  }
+
+  // Filter: keep only changelogs that have entries matching ALL selected tags
+  const filtered = useMemo(() => {
+    if (activeTags.length === 0) return changelogs;
+
+    return changelogs
+      .map((cl) => ({
+        ...cl,
+        entries: cl.entries.filter((entry) =>
+          activeTags.every((t) => entry.tags.includes(t))
+        ),
+      }))
+      .filter((cl) => cl.entries.length > 0);
+  }, [changelogs, activeTags]);
+
   return (
     <>
       <Head>
@@ -34,22 +59,27 @@ export default function IndexPage({ changelogs, tags, activeTag, productName }: 
           {/* Tag filter */}
           {tags.length > 0 && (
             <div className="mb-10">
-              <TagFilter tags={tags} activeTag={activeTag} />
+              <TagFilter
+                tags={tags}
+                activeTags={activeTags}
+                onToggle={handleToggle}
+                onClear={handleClear}
+              />
             </div>
           )}
 
           {/* Entries */}
-          {changelogs.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="text-center py-24 text-gray-400">
               <p className="text-sm">
-                {activeTag
-                  ? `No entries tagged "${activeTag}".`
+                {activeTags.length > 0
+                  ? `No entries matching ${activeTags.map((t) => `"${t}"`).join(' + ')}.`
                   : 'No changelog entries yet. Run `changelog generate` to create some.'}
               </p>
             </div>
           ) : (
             <div>
-              {changelogs.map((cl) => (
+              {filtered.map((cl) => (
                 <ChangelogEntry key={cl.id} changelog={cl} />
               ))}
             </div>
@@ -60,10 +90,8 @@ export default function IndexPage({ changelogs, tags, activeTag, productName }: 
   );
 }
 
-export const getServerSideProps: GetServerSideProps<Props> = async ({ query }) => {
-  const tag = typeof query.tag === 'string' ? query.tag : null;
-
-  const changelogs = getAllChangelogs(tag ?? undefined);
+export const getServerSideProps: GetServerSideProps<Props> = async () => {
+  const changelogs = getAllChangelogs();
   const tags = getAllTags();
   const productName = getProductName();
 
@@ -71,7 +99,6 @@ export const getServerSideProps: GetServerSideProps<Props> = async ({ query }) =
     props: {
       changelogs,
       tags,
-      activeTag: tag,
       productName,
     },
   };

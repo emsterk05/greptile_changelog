@@ -20,7 +20,7 @@ export default function ChangelogDetailPage({ changelog, productName }: Props) {
   return (
     <>
       <Head>
-        <title>{productName} Changelog — {changelog.date}</title>
+        <title>{`${productName} Changelog — ${changelog.date}`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 

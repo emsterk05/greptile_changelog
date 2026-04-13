@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import 'dotenv/config';
 import { Command } from 'commander';
 import { initCommand } from './commands/init';
 import { generateCommand } from './commands/generate';

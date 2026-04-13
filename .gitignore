@@ -3,10 +3,8 @@
 # Environment — never commit secrets
 .env
 .env.*
-!.env.example
 **/.env
 **/.env.*
-!**/.env.example
 
 # Dependencies
 **/node_modules/

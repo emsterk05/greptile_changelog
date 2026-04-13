@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 
 let _client: OpenAI | null = null;
 
@@ -7,12 +8,35 @@ function getClient(): OpenAI {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error(
-        'OPENAI_API_KEY is not set.\nAdd it to a .env file in this directory or export it in your shell.'
+        'OPENAI_API_KEY is not set.\nExport it in your shell: export OPENAI_API_KEY=sk-...'
       );
     }
     _client = new OpenAI({ apiKey });
   }
   return _client;
+}
+
+const MAX_RETRIES = 5;
+
+async function chatWithRetry(
+  params: ChatCompletionCreateParamsNonStreaming
+): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await getClient().chat.completions.create(params);
+    } catch (err: any) {
+      if (err?.status === 429 && attempt < MAX_RETRIES - 1) {
+        const retryMs = parseInt(err?.headers?.['retry-after-ms'], 10);
+        const waitMs = retryMs > 0 ? retryMs : (attempt + 1) * 15_000;
+        const waitSec = (waitMs / 1000).toFixed(0);
+        process.stdout.write(`  Rate limited — retrying in ${waitSec}s...\n`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Unreachable');
 }
 
 export async function mapFiles(
@@ -22,7 +46,7 @@ export async function mapFiles(
     .map((f) => `// ${f.path}\n${f.content}`)
     .join('\n\n---\n\n');
 
-  const response = await getClient().chat.completions.create({
+  const response = await chatWithRetry({
     model: 'gpt-4o',
     messages: [
       {
@@ -50,7 +74,7 @@ export async function reduceToContext(summaries: string[]): Promise<ReduceResult
     .map((s, i) => `Summary ${i + 1}:\n${s}`)
     .join('\n\n---\n\n');
 
-  const response = await getClient().chat.completions.create({
+  const response = await chatWithRetry({
     model: 'gpt-4o',
     messages: [
       {
@@ -87,9 +111,10 @@ export interface ChangelogEntry {
 export interface GenerateResult {
   entries: ChangelogEntry[];
   newTags: string[];
+  chunkCount: number;
 }
 
-export const DIFF_LIMIT = 80_000;
+export const DIFF_LIMIT = 30_000;
 
 export interface GenerateOptions {
   audience?: string;
@@ -97,13 +122,36 @@ export interface GenerateOptions {
   model?: string;
 }
 
-export async function generateChangelog(
+/**
+ * Split a diff into chunks of at most `chunkSize` bytes, breaking only on
+ * "diff --git" boundaries so we never cut in the middle of a file hunk.
+ */
+function splitDiff(diff: string, chunkSize: number): string[] {
+  if (diff.length <= chunkSize) return [diff];
+
+  const parts = diff.split(/(?=^diff --git )/m);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const part of parts) {
+    if (current.length + part.length > chunkSize && current.length > 0) {
+      chunks.push(current);
+      current = part;
+    } else {
+      current += part;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function buildMapPrompt(
   projectContext: string,
   tags: string[],
-  diff: string,
-  options: GenerateOptions = {}
-): Promise<GenerateResult> {
-  const { audience, alwaysInclude = [], model = 'gpt-4o' } = options;
+  chunk: string,
+  options: GenerateOptions
+): string {
+  const { audience, alwaysInclude = [] } = options;
 
   const audienceLine = audience
     ? `The intended readers of this changelog are: ${audience}.`
@@ -113,12 +161,7 @@ export async function generateChangelog(
     ? `\nAdditional rules:\n${alwaysInclude.map((r) => `- ${r}`).join('\n')}\n`
     : '';
 
-  const response = await getClient().chat.completions.create({
-    model,
-    messages: [
-      {
-        role: 'user',
-        content: `You are writing a public-facing changelog for a developer tool.
+  return `You are writing public-facing changelog entries for a developer tool.
 
 Project context:
 <context>
@@ -129,9 +172,9 @@ ${audienceLine}
 
 Available tags: ${tags.join(', ')}
 ${alwaysIncludeSection}
-Here is the cumulative diff of all changes since the last changelog:
+Here is a portion of the cumulative diff of all changes since the last changelog:
 <diff>
-${diff}
+${chunk}
 </diff>
 
 Write changelog entries targeted at external developers who integrate with this product (via its API, SDK, or CLI).
@@ -155,12 +198,23 @@ When an entry involves any of the following, include the relevant technical deta
 Do NOT include internal refactors, test changes, CI/CD changes, or dependency bumps unless they have a direct effect on integrators.
 - Each entry should have ALL tags from the available list that apply to it (can be multiple)
 - If an entry represents something genuinely novel that doesn't fit any existing tag, invent a concise new tag and include it in both the entry's tags array AND in the top-level "newTags" array
-- If there are no user-facing changes, return an empty entries array
-- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tags": ["tag1", "tag2"] }], "newTags": [] }`,
-      },
-    ],
+- If there are no user-facing changes in this portion, return an empty entries array
+- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tags": ["tag1", "tag2"] }], "newTags": [] }`;
+}
+
+async function mapDiffChunk(
+  projectContext: string,
+  tags: string[],
+  chunk: string,
+  options: GenerateOptions
+): Promise<{ entries: ChangelogEntry[]; newTags: string[] }> {
+  const { model = 'gpt-4o' } = options;
+
+  const response = await chatWithRetry({
+    model,
+    messages: [{ role: 'user', content: buildMapPrompt(projectContext, tags, chunk, options) }],
     response_format: { type: 'json_object' },
-    max_tokens: 2000,
+    max_tokens: 4000,
   });
 
   const result = JSON.parse(response.choices[0].message.content ?? '{"entries":[],"newTags":[]}');
@@ -168,4 +222,77 @@ Do NOT include internal refactors, test changes, CI/CD changes, or dependency bu
     entries: result.entries ?? [],
     newTags: result.newTags ?? [],
   };
+}
+
+async function reduceDiffResults(
+  projectContext: string,
+  tags: string[],
+  allEntries: ChangelogEntry[],
+  allNewTags: string[],
+  options: GenerateOptions
+): Promise<{ entries: ChangelogEntry[]; newTags: string[] }> {
+  const { model = 'gpt-4o' } = options;
+  const combinedTags = [...new Set([...tags, ...allNewTags])];
+
+  const response = await chatWithRetry({
+    model,
+    messages: [
+      {
+        role: 'user',
+        content: `You are consolidating changelog entries that were extracted from multiple diff chunks of the same release.
+
+Project context:
+<context>
+${projectContext}
+</context>
+
+Available tags: ${combinedTags.join(', ')}
+
+Here are all the raw entries (may contain duplicates or closely related items from different chunks):
+<entries>
+${JSON.stringify(allEntries, null, 2)}
+</entries>
+
+Merge duplicates and closely related entries into single entries. Remove anything that is purely internal or implementation-level. Keep all distinct user-facing changes.
+- Each entry should have ALL tags from the available list that apply to it (can be multiple)
+- If a genuinely new tag is still needed, include it in "newTags"
+- Return as JSON: { "entries": [{ "title": "...", "description": "...", "tags": ["tag1"] }], "newTags": [] }`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    max_tokens: 4000,
+  });
+
+  const result = JSON.parse(response.choices[0].message.content ?? '{"entries":[],"newTags":[]}');
+  return {
+    entries: result.entries ?? [],
+    newTags: result.newTags ?? [],
+  };
+}
+
+export async function generateChangelog(
+  projectContext: string,
+  tags: string[],
+  diff: string,
+  options: GenerateOptions = {}
+): Promise<GenerateResult> {
+  const chunks = splitDiff(diff, DIFF_LIMIT);
+
+  if (chunks.length === 1) {
+    const result = await mapDiffChunk(projectContext, tags, chunks[0], options);
+    return { ...result, chunkCount: 1 };
+  }
+
+  // Map: process all chunks in parallel
+  const mapResults = await Promise.all(
+    chunks.map((chunk) => mapDiffChunk(projectContext, tags, chunk, options))
+  );
+
+  const allEntries = mapResults.flatMap((r) => r.entries);
+  const allNewTags = [...new Set(mapResults.flatMap((r) => r.newTags))];
+
+  // Reduce: consolidate and dedup entries across chunks
+  const reduced = await reduceDiffResults(projectContext, tags, allEntries, allNewTags, options);
+
+  return { ...reduced, chunkCount: chunks.length };
 }

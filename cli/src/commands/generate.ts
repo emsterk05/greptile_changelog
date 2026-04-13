@@ -1,7 +1,8 @@
 import chalk from 'chalk';
+import ora from 'ora';
 import { v4 as uuidv4 } from 'uuid';
 import { readConfig, writeConfig, configExists } from '../lib/config';
-import { readState, updateState, insertChangelog } from '../lib/storage';
+import { initDb, readState, updateState, insertChangelog } from '../lib/storage';
 import { isGitRepo, getDiff, resolveRef, getCurrentBranch, getDefaultBranch } from '../lib/git';
 import { generateChangelog, DIFF_LIMIT } from '../lib/openai';
 import { appendToChangelogMd } from '../lib/files';
@@ -88,6 +89,9 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     process.exit(1);
   }
 
+  // Ensure the DB schema is up to date (migrates older databases missing new tables)
+  initDb(cwd);
+
   const config = readConfig(cwd);
   const state = readState(cwd);
 
@@ -128,34 +132,40 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
     }
   }
 
-  const generateOptions = {
-    audience: config.audience || undefined,
-    alwaysInclude: config.alwaysInclude,
-    model: config.model,
-  };
+  const chunkCount = Math.ceil(diff.length / DIFF_LIMIT);
+  const spinnerText = chunkCount > 1
+    ? `Analyzing ${chunkCount} batches in parallel (${(diff.length / 1024).toFixed(0)}KB diff)`
+    : `Analyzing diff (${(diff.length / 1024).toFixed(1)}KB)`;
+
+  const spinner = ora({ text: spinnerText, spinner: 'dots' }).start();
 
   let entries: Awaited<ReturnType<typeof generateChangelog>>['entries'];
   let newTags: string[];
+  let actualChunks: number;
 
-  if (diff.length <= DIFF_LIMIT) {
-    console.log(chalk.dim(`Diff: ${(diff.length / 1024).toFixed(1)}KB — calling OpenAI...\n`));
-    ({ entries, newTags } = await generateChangelog(
-      config.projectContext, config.tags, diff, generateOptions
-    ));
-  } else {
-    const chunks = splitDiffIntoChunks(diff, DIFF_LIMIT);
-    console.log(
-      chalk.dim(
-        `Diff: ${(diff.length / 1024).toFixed(1)}KB — splitting into ${chunks.length} chunks and calling OpenAI in parallel...\n`
-      )
+  try {
+    const result = await generateChangelog(
+      config.projectContext,
+      config.tags,
+      diff,
+      {
+        audience: config.audience || undefined,
+        alwaysInclude: config.alwaysInclude,
+        model: config.model,
+      }
     );
-    const results = await Promise.all(
-      chunks.map((chunk) =>
-        generateChangelog(config.projectContext, config.tags, chunk, generateOptions)
-      )
-    );
-    entries = results.flatMap((r) => r.entries);
-    newTags = [...new Set(results.flatMap((r) => r.newTags))];
+    entries = result.entries;
+    newTags = result.newTags;
+    actualChunks = result.chunkCount;
+
+    if (actualChunks > 1) {
+      spinner.succeed(`Analyzed ${actualChunks} batches`);
+    } else {
+      spinner.succeed('Analysis complete');
+    }
+  } catch (err) {
+    spinner.fail('Analysis failed');
+    throw err;
   }
 
   if (entries.length === 0) {
@@ -193,7 +203,8 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
 
   // Print summary
   const count = entries.length;
-  console.log(chalk.green(`✓ Generated ${count} changelog ${count === 1 ? 'entry' : 'entries'}:\n`));
+  const chunkNote = actualChunks > 1 ? ` (from ${actualChunks} diff chunks)` : '';
+  console.log(chalk.green(`✓ Generated ${count} changelog ${count === 1 ? 'entry' : 'entries'}${chunkNote}:\n`));
   for (const entry of entries) {
     console.log(`  ${chalk.cyan(`[${entry.tags.join(', ')}]`)} ${chalk.bold(entry.title)}`);
   }
