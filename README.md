@@ -81,6 +81,9 @@ your-repo/
 
 # More Info
 
+## AI Tools
+Built with Claude Code
+
 ## Configuration
 
 Run `changelog config` to open an interactive menu:
