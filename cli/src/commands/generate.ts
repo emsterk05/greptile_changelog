@@ -18,7 +18,10 @@ function splitDiffIntoChunks(diff: string, maxBytes: number): string[] {
   const chunks: string[] = [];
   let current = '';
 
-  for (const part of parts) {
+  for (let part of parts) {
+    if (part.length > maxBytes) {
+      part = part.slice(0, maxBytes) + '\n[... diff truncated: file too large ...]\n';
+    }
     if (current.length + part.length > maxBytes && current.length > 0) {
       chunks.push(current);
       current = part;

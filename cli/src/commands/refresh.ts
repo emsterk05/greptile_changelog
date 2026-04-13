@@ -26,16 +26,31 @@ export async function refreshCommand(): Promise<void> {
     process.exit(1);
   }
 
-  console.log(chalk.bold('\nRefreshing project context...\n'));
+  process.stdout.write('\n');
 
+  // Scan files (sync — no spinner, event loop would be blocked anyway)
   const allFiles = listTrackedFiles(cwd);
   const filtered = allFiles.filter(shouldIncludeFile);
   const prioritized = prioritizeFiles(filtered).slice(0, MAX_FILES);
 
-  for (const file of prioritized) {
-    console.log(chalk.dim(`  → ${file}`));
+  // Scroll file list through a 5-line window
+  const DISPLAY_ROWS = 5;
+  for (let i = 0; i < DISPLAY_ROWS; i++) process.stdout.write('\n');
+  for (let i = 0; i < prioritized.length; i++) {
+    process.stdout.write(`\x1b[${DISPLAY_ROWS}A`);
+    const window = prioritized.slice(Math.max(0, i - DISPLAY_ROWS + 1), i + 1);
+    while (window.length < DISPLAY_ROWS) window.unshift('');
+    for (const f of window) {
+      process.stdout.write(`\x1b[2K  ${f ? chalk.dim(`→ ${f}`) : ''}\n`);
+    }
+    await new Promise((r) => setTimeout(r, 30));
   }
+  // Clear the file list lines
+  process.stdout.write(`\x1b[${DISPLAY_ROWS}A`);
+  for (let i = 0; i < DISPLAY_ROWS; i++) process.stdout.write('\x1b[2K\n');
+  process.stdout.write(`\x1b[${DISPLAY_ROWS}A`);
 
+  // Read file contents and batch
   const fileContents = prioritized
     .map((filePath) => {
       try {
@@ -53,22 +68,36 @@ export async function refreshCommand(): Promise<void> {
     batches.push(fileContents.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(chalk.blue(`\nAnalyzing ${batches.length} batch${batches.length !== 1 ? 'es' : ''} in parallel...`));
+  // Single spinner covers both batch analysis and context rebuild
+  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let frameIdx = 0;
+  const label = 'Rebuilding project context...';
+  const spinId = setInterval(() => {
+    process.stdout.write(`\r\x1b[2K  ${chalk.blue(spinnerFrames[frameIdx % spinnerFrames.length])}  ${label}`);
+    frameIdx++;
+  }, 80);
 
   const partialSummaries = await Promise.all(batches.map((batch) => mapFiles(batch)));
-
-  console.log(chalk.blue('Rebuilding project context...'));
   const { projectContext, suggestedTags } = await reduceToContext(partialSummaries);
 
-  // Preserve existing tags — user may have customized them
+  clearInterval(spinId);
+  process.stdout.write(`\r\x1b[2K`);
+
   const existing = readConfig(cwd);
+  const addedTags = suggestedTags.filter((t) => !existing.tags.includes(t));
+  const mergedTags = [...existing.tags, ...addedTags];
 
   writeConfig(
-    { ...existing, projectContext, tags: existing.tags, scannedFiles: prioritized },
+    { ...existing, projectContext, tags: mergedTags, scannedFiles: prioritized },
     cwd
   );
 
-  console.log(chalk.green('\n✓ Project context refreshed!\n'));
-  console.log(chalk.dim('New suggested tags from scan:'), suggestedTags.join(', '));
-  console.log(chalk.dim('(Your existing tags were preserved. Edit .changelog/config.json to update them.)\n'));
+  console.log(chalk.green('✓ Project context refreshed!'));
+  if (addedTags.length > 0) {
+    console.log(chalk.dim('New tags added:'));
+    for (const t of addedTags) console.log(chalk.cyan(`  · ${t}`));
+  } else {
+    console.log(chalk.dim('Tags are up to date.'));
+  }
+  console.log(chalk.dim('\nEdit .changelog/config.json to customize your tags.\n'));
 }
