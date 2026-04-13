@@ -51,17 +51,53 @@ This will scan your codebase, use AI to understand your project, and prompt you 
 | `changelog init` | Set up changelog in the current git repo |
 | `changelog generate` | Generate entries from commits since last run |
 | `changelog generate --from <ref> --to <ref>` | Generate entries for a specific commit range |
+| `changelog config` | Edit preferences interactively |
 | `changelog refresh` | Re-scan codebase to update project context |
 | `changelog history` | Show entries from the last generate run |
 | `changelog history -n 5` | Show entries from the last 5 generate runs |
 | `changelog serve` | Start local website at `http://localhost:3000` |
+
+## Tags
+
+Each changelog entry is automatically assigned **all relevant tags** from your configured tag list — not just one. If the AI identifies a change that doesn't fit any existing tag, it creates a new tag and adds it to your config automatically.
+
+Tags are filterable on the local website, letting readers browse by category.
+
+## Configuration
+
+Run `changelog config` to open an interactive menu:
+
+### Tag management
+- **List** all current tags
+- **Add** a new tag
+- **Remove** a tag
+- **Rename** a tag
+
+### Generation behavior
+- **Always-include rules** — plain-English rules injected into the AI prompt, e.g. *"Always include security-related changes even if minor"*
+- **Exclude patterns** — glob patterns for files to strip from the diff before sending to the AI, e.g. `prisma/migrations/**`, `*.generated.ts`, `docs/**`. Useful for auto-generated files or directories that never produce user-facing changes.
+- **Audience** — describes who reads the changelog, e.g. *"backend engineers integrating this API"*. Shapes the writing style of generated entries.
+
+### Model
+Override the OpenAI model used for generation. Options: `gpt-4o` (default), `gpt-4o-mini`, `gpt-4-turbo`, or any custom model ID.
+
+### Display
+- **Project name** — shown in the website header
+- **Date format** — how dates appear in `CHANGELOG.md`
+
+### Edit raw config file
+Opens `.changelog/config.json` directly in your `$EDITOR`.
+
+## Large Diffs
+
+If the diff for a generate run exceeds 80KB, it is automatically split into chunks at file boundaries and processed in parallel. Results from all chunks are merged into a single set of changelog entries. Use `--from`/`--to` to narrow the range if you want to reduce the number of chunks.
 
 ## What Gets Created in Your Repo
 
 ```
 your-repo/
 ├── .changelog/
-│   ├── config.json     # project context, tags, scanned files
+│   ├── config.json     # project context, tags, preferences, scanned files
 │   └── state.db        # tracks last generated commit
 ├── changelogs/         # one JSON file per generate run
 │   └── 2024-01-15.json
