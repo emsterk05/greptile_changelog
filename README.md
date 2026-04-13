@@ -6,7 +6,7 @@ An AI-powered CLI tool that reads your git history and automatically generates a
 
 1. Run `changelog init` inside any git repo — the tool scans your codebase, builds a project context using AI, and sets up the changelog directory.
 2. Run `changelog generate` after you've made changes — it diffs your commits and writes changelog entries describing what changed from a user's perspective.
-3. Run `changelog serve` to view your changelog in a local website.
+3. Run `changelog serve` to view your changelog in a local website — designed for external developers who integrate with your APIs or SDKs, so they can see what changed and whether they need to update their code.
 
 ## Setup
 
@@ -76,7 +76,7 @@ Run `changelog config` to open an interactive menu:
 ### Generation behavior
 - **Always-include rules** — plain-English rules injected into the AI prompt, e.g. *"Always include security-related changes even if minor"*
 - **Exclude patterns** — glob patterns for files to strip from the diff before sending to the AI, e.g. `prisma/migrations/**`, `*.generated.ts`, `docs/**`. Useful for auto-generated files or directories that never produce user-facing changes.
-- **Audience** — describes who reads the changelog, e.g. *"backend engineers integrating this API"*. Shapes the writing style of generated entries.
+- **Audience** — describes who reads the changelog, e.g. *"backend engineers integrating this API"*. Shapes the writing style and technical depth of generated entries. Defaults to external developers using the product's API or SDK.
 
 ### Model
 Override the OpenAI model used for generation. Options: `gpt-4o` (default), `gpt-4o-mini`, `gpt-4-turbo`, or any custom model ID.
